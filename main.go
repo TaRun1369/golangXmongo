@@ -1,31 +1,41 @@
-package golangxmongo
+package main
 
 import (
-	// Add your imports here
-	"github.com/julienschmidt/httprouter"
-	"gopkg.in/mgo.v2"
+	"context"
 	"net/http"
-	"github.com/tarun1369/golangXmongo/controllers"
 
+	"github/TaRun1369/golangXmongo/controllers"
+	"github.com/julienschmidt/httprouter"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
-	
-
 
 func main() {
 	r := httprouter.New()
-	uc := controllers.NewUserController(getSession()) // getsession returns pointer to s of mongodb session
-	r.GET("/user/:id",uc.GetUser)
-	r.POST("/user",uc.CreateUser,)
-	r.DELETE("/user/:id",uc.DeleteUser)
-	http.ListenAndServe("localhost:8080",r)
-
+	uc := controllers.NewUserController(getSession()) // getSession returns a MongoDB client
+	r.GET("/user/:id", uc.GetUser)
+	r.POST("/user", uc.CreateUser)
+	r.DELETE("/user/:id", uc.DeleteUser)
+	http.ListenAndServe("localhost:8080", r)
 }
 
-func getSession() *mgo.Session{
-	// pointer of mongodb session
-	s,err := mgo.Dial("mongodb://localhost:27017")  // s is pointer session jo get session se aaya
+func getSession() *mongo.Client {
+	// Set client options
+	clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
+
+	// Connect to MongoDB
+	client, err := mongo.Connect(context.TODO(), clientOptions)
+
 	if err != nil {
 		panic(err)
 	}
-	return s
+
+	// Check the connection
+	err = client.Ping(context.TODO(), nil)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return client
 }

@@ -1,91 +1,80 @@
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github/tarun1369/golangXmongo/models"
 	"net/http"
+	"time"
 
+	"github/TaRun1369/golangXmongo/models"
 	"github.com/julienschmidt/httprouter"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type UserController struct {
-	session *mgo.Session
+    client *mongo.Client
 }
 
-func NewUserController(s *mgo.Session) *UserController {
-	return &UserController{s}
+func NewUserController(c *mongo.Client) *UserController {
+    return &UserController{c}
 }
 
 func (uc UserController) GetUser(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	id := p.ByName("id")
-	if !bson.IsObjectIdHex(id) {
-		// is not valid object id
-		w.WriteHeader(http.StatusNotFound) // 404 // header has status/error code
-	}
-	oid := bson.ObjectIdHex(id) // object id
-	u := models.User{}        // empty user struct
+    id := p.ByName("id")
+    oid, _ := primitive.ObjectIDFromHex(id)
+    u := models.User{}
 
-	if err := uc.session.DB("golangXmongo").C("users").FindId(oid).One(&u); err != nil {
-		// c for collection
-		w.WriteHeader(404) // 404 as after finding id we are not able to find user
-		return
-	}
+    collection := uc.client.Database("golangXmongo").Collection("users")
+    ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+    err := collection.FindOne(ctx, bson.M{"_id": oid}).Decode(&u)
 
-	uj, err := json.Marshal(u) // for json encoding
+    if err != nil {
+        w.WriteHeader(http.StatusNotFound)
+        return
+    }
 
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	w.Header().Set("Content-Type", "application/json") // postman ko bata rahe yaha
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "%s\n", uj)
-
+    uj, _ := json.Marshal(u)
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    fmt.Fprintf(w, "%s\n", uj)
 }
 
 func (uc UserController) CreateUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	u := models.User{}
-	// r - postman se aayi hai
-	// _ kyuki param ka kaam nhi
+    u := models.User{}
+    json.NewDecoder(r.Body).Decode(&u)
+    u.Id = primitive.NewObjectID()
 
-	// create user from json
-	json.NewDecoder(r.Body).Decode(&u) // decode json and put it in u
-	u.Id = bson.NewObjectId()
+    collection := uc.client.Database("golangXmongo").Collection("users")
+    ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+    result, _ := collection.InsertOne(ctx, u)
 
-	uc.session.DB("golangXmongo").C("users").Insert(u) // insert user in mongodb
-
-	// also sending data back to user in json format
-	uj, err := json.Marshal(u)
-
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "%s\n", uj)
-
+    uj, _ := json.Marshal(result)
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusCreated)
+    fmt.Fprintf(w, "%s\n", uj)
 }
 
-func (uc UserController) DeleteUser(w http.ResponseWriter,r *http.Request, p httprouter.Params) {
-	id := p.ByName("id")
+func (uc UserController) DeleteUser(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+    id := p.ByName("id")
+    oid, _ := primitive.ObjectIDFromHex(id)
 
-	if !bson.IsObjectIdHex(id) {
-		w.WriteHeader(404)
-		return
-	}
+    collection := uc.client.Database("golangXmongo").Collection("users")
+    ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+    result, err := collection.DeleteOne(ctx, bson.M{"_id": oid})
 
-	oid := bson.ObjectIdHex(id)
+    if err != nil {
+        w.WriteHeader(http.StatusInternalServerError)
+        return
+    }
 
-	if err := uc.session.DB("golangXmongo").C("users").RemoveId(oid); err != nil {
-		w.WriteHeader(404)
-		return
-	} 
+    if result.DeletedCount == 0 {
+        w.WriteHeader(http.StatusNotFound)
+        return
+    }
 
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w,"Deleted user",oid,"\n")
-
+    w.WriteHeader(http.StatusOK)
+    fmt.Fprintf(w, "Deleted user %s\n", id)
 }
